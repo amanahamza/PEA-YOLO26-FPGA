@@ -1,0 +1,23 @@
+# Model weights and large binaries
+*.pt
+*.onnx
+*.npy
+
+# Datasets
+PCB_dataset/
+golden_reference/
+
+# Python
+__pycache__/
+*.pyc
+
+# Vitis HLS build artifacts — keep only source .cpp/.h files
+mac_proj/
+mac_array_proj/
+sliding_window_h/solution1/
+*_proj/
+solution1/
+
+# OS junk
+Thumbs.db
+desktop.ini
