@@ -1,0 +1,39 @@
+# YOLO26n + PEA-v1 + BiFusion
+# Based on proven yolo26n_pea.yaml (best model: mAP50=0.9347)
+# Replaces Concat at P4 and P3 fusion points with learnable BiFusion
+# PEA stays at single insertion (neck P3, 64ch) — same as v1
+
+nc: 6
+end2end: True
+reg_max: 1
+scales:
+  n: [0.50, 0.25, 1024]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]            # 0   320x320  (actual 16ch)
+  - [-1, 1, Conv, [128, 3, 2]]           # 1   160x160  (actual 32ch)
+  - [-1, 2, C3k2, [256, False, 0.25]]    # 2   160x160  (actual 64ch)
+  - [-1, 1, Conv, [256, 3, 2]]           # 3    80x80   (actual 64ch)
+  - [-1, 2, C3k2, [512, False, 0.25]]    # 4    80x80   backbone P3 (actual 128ch)
+  - [-1, 1, Conv, [512, 3, 2]]           # 5    40x40   (actual 128ch)
+  - [-1, 2, C3k2, [512, True]]           # 6    40x40   backbone P4 (actual 128ch)
+  - [-1, 1, Conv, [1024, 3, 2]]          # 7    20x20   (actual 256ch)
+  - [-1, 2, C3k2, [1024, True]]          # 8    20x20   backbone P5 (actual 256ch)
+  - [-1, 1, SPPF, [1024, 5]]             # 9    20x20
+  - [-1, 2, C2PSA, [1024]]               # 10   20x20
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]   # 11   40x40 (from P5, 256ch)
+  - [[-1, 6], 1, BiFusion, [128]]                # 12 ← replaces Concat
+  - [-1, 2, C3k2, [512, False]]                  # 13   40x40 P4 fused (actual 128ch)
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]   # 14   80x80
+  - [[-1, 4], 1, BiFusion, [64]]                 # 15 ← replaces Concat
+  - [-1, 2, C3k2, [256, False]]                  # 16   80x80 P3 fused (actual 64ch)
+  - [-1, 1, PEA, []]                             # 17 ← PEA at neck P3 (actual 64ch)
+  - [-1, 1, Conv, [256, 3, 2]]                   # 18   40x40
+  - [[-1, 13], 1, Concat, [1]]                   # 19   concat P4 fused
+  - [-1, 2, C3k2, [512, False]]                  # 20   40x40 P4 det
+  - [-1, 1, Conv, [512, 3, 2]]                   # 21   20x20
+  - [[-1, 10], 1, Concat, [1]]                   # 22   concat P5
+  - [-1, 2, C3k2, [1024, True]]                  # 23   20x20 P5 det
+  - [[17, 20, 23], 1, Detect, [nc]]              # 24   detect [P3, P4, P5]
