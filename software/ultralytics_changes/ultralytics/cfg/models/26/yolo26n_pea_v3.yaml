@@ -1,0 +1,38 @@
+# YOLO26n + PEA-v3 (channel+spatial+dilated)
+# Based on yolo26n_pea.yaml — same scale, same channels
+# Two PEA insertions: backbone P3 (128ch) + neck P3 (64ch)
+nc: 6
+end2end: True
+reg_max: 1
+scales:
+  n: [0.50, 0.25, 1024]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]            # 0   320x320
+  - [-1, 1, Conv, [128, 3, 2]]           # 1   160x160
+  - [-1, 2, C3k2, [256, False, 0.25]]    # 2   160x160
+  - [-1, 1, Conv, [256, 3, 2]]           # 3    80x80
+  - [-1, 2, C3k2, [512, False, 0.25]]    # 4    80x80  backbone P3 (actual 128ch)
+  - [-1, 1, PEA, []]                     # 5  <- NEW PEA backbone P3
+  - [-1, 1, Conv, [512, 3, 2]]           # 6    40x40
+  - [-1, 2, C3k2, [512, True]]           # 7    40x40  backbone P4
+  - [-1, 1, Conv, [1024, 3, 2]]          # 8    20x20
+  - [-1, 2, C3k2, [1024, True]]          # 9    20x20  backbone P5
+  - [-1, 1, SPPF, [1024, 5]]            # 10   20x20
+  - [-1, 2, C2PSA, [1024]]              # 11   20x20
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 12   40x40
+  - [[-1, 7], 1, Concat, [1]]                    # 13   concat backbone P4 (layer 7)
+  - [-1, 2, C3k2, [512, False]]                  # 14   40x40 P4 fused
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]  # 15   80x80
+  - [[-1, 5], 1, Concat, [1]]                    # 16   concat backbone P3+PEA (layer 5)
+  - [-1, 2, C3k2, [256, False]]                  # 17   80x80 P3 fused
+  - [-1, 1, PEA, []]                             # 18 <- existing PEA neck P3
+  - [-1, 1, Conv, [256, 3, 2]]                   # 19   40x40
+  - [[-1, 14], 1, Concat, [1]]                   # 20   concat P4 fused (layer 14)
+  - [-1, 2, C3k2, [512, False]]                  # 21   40x40 P4 det
+  - [-1, 1, Conv, [512, 3, 2]]                   # 22   20x20
+  - [[-1, 11], 1, Concat, [1]]                   # 23   concat P5 (layer 11)
+  - [-1, 2, C3k2, [1024, True]]                  # 24   20x20 P5 det
+  - [[18, 21, 24], 1, Detect, [nc]]              # 25   detect

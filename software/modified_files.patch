@@ -1,0 +1,85 @@
+diff --git a/ultralytics/nn/modules/__init__.py b/ultralytics/nn/modules/__init__.py
+index fc19560e2..2d0a73fb5 100644
+--- a/ultralytics/nn/modules/__init__.py
++++ b/ultralytics/nn/modules/__init__.py
+@@ -190,3 +190,6 @@ __all__ = (
+     "YOLOESegment26",
+     "v10Detect",
+ )
++from .ema import EMA
++from .pea import PEA
++from .bifusion import BiFusion
+diff --git a/ultralytics/nn/tasks.py b/ultralytics/nn/tasks.py
+index 4b1f4f66f..ae3b5ff09 100644
+--- a/ultralytics/nn/tasks.py
++++ b/ultralytics/nn/tasks.py
+@@ -12,6 +12,9 @@ import torch.nn as nn
+ 
+ from ultralytics.nn.autobackend import check_class_names
+ from ultralytics.nn.modules import (
++    EMA,
++    PEA,
++    BiFusion,
+     AIFI,
+     C1,
+     C2,
+@@ -1816,8 +1819,18 @@ def parse_model(d, ch, verbose=True):
+             c2 = args[0]
+             c1 = ch[f]
+             args = [*args[1:]]
++        elif m is EMA:
++            c2 = ch[f]
++        elif m is PEA:
++            c2 = ch[f]
++            args = [c2]
++        elif m is BiFusion:
++            c2 = args[0]
++            in_channels_list = [ch[x] for x in f]
++            args = [in_channels_list, c2]
+         else:
+             c2 = ch[f]
++           
+ 
+         m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+         t = str(m)[8:-2].replace("__main__.", "")  # module type
+diff --git a/ultralytics/utils/loss.py b/ultralytics/utils/loss.py
+index 88b97cf14..1340371b2 100644
+--- a/ultralytics/utils/loss.py
++++ b/ultralytics/utils/loss.py
+@@ -129,7 +129,7 @@ class BboxLoss(nn.Module):
+     ) -> tuple[torch.Tensor, torch.Tensor]:
+         """Compute IoU and DFL losses for bounding boxes."""
+         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+-        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
++        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, WIoU=True)
+         loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+ 
+         # DFL loss
+diff --git a/ultralytics/utils/metrics.py b/ultralytics/utils/metrics.py
+index b7e227f7c..58737b1e8 100644
+--- a/ultralytics/utils/metrics.py
++++ b/ultralytics/utils/metrics.py
+@@ -109,6 +109,7 @@ def bbox_iou(
+     GIoU: bool = False,
+     DIoU: bool = False,
+     CIoU: bool = False,
++    WIoU: bool = False,
+     eps: float = 1e-7,
+ ) -> torch.Tensor:
+     """Calculate the Intersection over Union (IoU) between bounding boxes.
+@@ -168,6 +169,15 @@ def bbox_iou(
+             return iou - rho2 / c2  # DIoU
+         c_area = cw * ch + eps  # convex area
+         return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
++    if WIoU:
++        # Wise-IoU: dynamic focusing mechanism for tiny object regression
++        # focuses gradient on high-quality anchors, reduces noise from low-quality ones
++        wise_factor = torch.exp(
++            ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) +
++             (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) /
++            ((w2.pow(2) + h2.pow(2)) * 4 + 1e-7)
++        ).detach()
++        return iou - wise_factor * (1 - iou)  # WIoU
+     return iou  # IoU
+ 
+ 
